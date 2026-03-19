@@ -98,18 +98,18 @@ const WA='5511986968488';
 
 const flow=[
   {id:'start',text:'Olá! 👋 Sou a *Camila*, especialista em cartão consignado para servidores do Estado de Minas Gerais.\n\nVocê é servidor(a) estadual ativo(a) ou aposentado(a) do *Governo de MG*?',opts:['✅ Sim, sou servidor(a) do Estado de MG','❌ Não sou servidor(a) estadual']},
-  {id:'autarquia',text:'Ótimo! 😊\n\nQual é a sua *autarquia ou órgão* no Estado de Minas?',opts:['🚔 PMMG – Polícia Militar de MG','🚒 CBMMG – Corpo de Bombeiros de MG','🏛️ SEPLAG – Secretaria de Planejamento','💰 IPSM – Previdência dos Serv. Militares','🏥 IPSEMG – Previdência dos Serv. Estaduais','📌 Outra']},
+  {id:'nome',text:'Ótimo! 😊 Para começarmos, qual é o seu *nome completo*?',input:true,placeholder:'Digite seu nome completo'},
+  {id:'whatsapp',text:'Perfeito, *{nome}*! E seu *WhatsApp* para contato:',input:true,placeholder:'(11) 9 0000-0000'},
+  {id:'autarquia',text:'Qual é a sua *autarquia ou órgão* no Estado de Minas?',opts:['🚔 PMMG – Polícia Militar de MG','🚒 CBMMG – Corpo de Bombeiros de MG','🏛️ SEPLAG – Secretaria de Planejamento','💰 IPSM – Previdência dos Serv. Militares','🏥 IPSEMG – Previdência dos Serv. Estaduais','📌 Outra']},
   {id:'vinculo',text:'Qual é o seu *tipo de vínculo* com o Estado?',opts:['📋 Efetivo (concursado)','📝 Temporário (designado)','🎖️ Aposentado / Pensionista']},
   {id:'tipo_cartao',text:'Você possui *cartão consignado* ou *cartão benefício*?',opts:['💳 Cartão Consignado','🎁 Cartão Benefício','💳🎁 Tenho os dois','❌ Não tenho nenhum']},
   {id:'banco',text:'Em qual banco você tem o cartão?',opts:['🏦 Banco PAN','🏦 Banco BMG','🏦 Santander','🏦 Daycoval','🏦 Master','🏦 Outro banco']},
   {id:'rota',text:'Posso montar uma *simulação completa* para você agora.\n\nComo prefere continuar?',opts:['📋 Quero a simulação completa','⚡ Prefiro falar direto com a consultora']},
-  {id:'rota_nome',text:'Sem problema! Para a consultora entrar em contato, me informa seu *nome*:',input:true,placeholder:'Digite seu nome',rota_rapida:true},
-  {id:'rota_whatsapp',text:'E seu *WhatsApp* para contato:',input:true,placeholder:'(11) 9 0000-0000',rota_rapida:true},
+  {id:'rota_nome',text:'Para a consultora entrar em contato, confirme seu *nome*:',input:true,placeholder:'Digite seu nome',rota_rapida:true},
+  {id:'rota_whatsapp',text:'E confirme seu *WhatsApp*:',input:true,placeholder:'(11) 9 0000-0000',rota_rapida:true},
   {id:'tem_fatura',text:'Você tem *fatura em aberto* no cartão?',opts:['✅ Sim, tenho fatura','❌ Não tenho fatura']},
   {id:'valor_fatura',text:'Qual o *valor aproximado* da fatura?',opts:['Até R$ 500','R$ 501 – R$ 1.000','R$ 1.001 – R$ 2.000','R$ 2.001 – R$ 5.000','Acima de R$ 5.000']},
-  {id:'nome',text:'Agora me informe seu *nome completo*:',input:true,placeholder:'Digite seu nome completo'},
-  {id:'cpf',text:'Obrigada, *{nome}*! 😊\n\nMe informe seu *CPF*:',input:true,placeholder:'000.000.000-00',mask:'cpf'},
-  {id:'whatsapp',text:'E seu *WhatsApp* para contato:',input:true,placeholder:'(11) 9 0000-0000'},
+  {id:'cpf',text:'Me informe seu *CPF*:',input:true,placeholder:'000.000.000-00',mask:'cpf'},
   {id:'contracheque',text:'Para a simulação preciso de dois documentos.\n\n*1️⃣ Contracheque* mais recente:',upload:true,uploadId:'contracheque',uploadLabel:'📄 Enviar Contracheque'},
   {id:'extrato',text:'*2️⃣ Extrato de Margem ATUALIZADO*\n\nGerado no portal SISAP ou no site do Governo de MG:',upload:true,uploadId:'extrato',uploadLabel:'📊 Enviar Extrato de Margem'},
   {id:'fim',final:true}
@@ -157,9 +157,18 @@ async function renderStep(s){
   await addBubble(fmtText(node.text),'in');chatBlocked=false;
 }
 
+let leadId=null;
+
 function chooseOpt(val,si,oi){
   document.querySelectorAll(`[data-step="${si}"]`).forEach(b=>b.disabled=true);
+  // Não é servidor
   if(si===0&&oi===1){addBubble(val,'out').then(()=>showTyping(900)).then(()=>addBubble('Entendido! Nosso serviço é exclusivo para servidores estaduais de Minas Gerais. Qualquer dúvida, volte aqui! 😊','in'));return;}
+  // É servidor — salva lead inicial imediatamente no banco
+  if(si===0&&oi===0){
+    answers[flow[si].id]=val;
+    criarLeadVazio();
+    addBubble(val,'out').then(()=>{step++;renderStep(step);});return;
+  }
   // Rota rápida
   if(flow[si].id==='rota'&&oi===1){answers.rota='rápida';answers[flow[si].id]=val;addBubble(val,'out').then(()=>{step++;renderStep(step);});return;}
   // Rota completa — pula rota_nome e rota_whatsapp
@@ -167,11 +176,39 @@ function chooseOpt(val,si,oi){
   answers[flow[si].id]=val;addBubble(val,'out').then(()=>{step++;renderStep(step);});
 }
 
+async function criarLeadVazio(){
+  try{
+    const res=await fetch(`${SUPA_URL}/rest/v1/leads_govmg`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Prefer':'return=representation'},
+      body:JSON.stringify({nome:'Aguardando...',whatsapp:'—'})
+    });
+    const data=await res.json();
+    if(data&&data[0]&&data[0].id)leadId=data[0].id;
+  }catch(e){console.error('Supabase erro:',e);}
+}
+
+async function atualizarLead(campos){
+  if(!leadId)return;
+  try{
+    await fetch(`${SUPA_URL}/rest/v1/leads_govmg?id=eq.${leadId}`,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Prefer':'return=minimal'},
+      body:JSON.stringify(campos)
+    });
+  }catch(e){console.error('Supabase update erro:',e);}
+}
+
 function sendMsg(){
   const inp=document.getElementById('chat-input');const val=inp.value.trim();
   if(!val||chatBlocked)return;const node=flow[step];if(!node||!node.input)return;
   let p=val;if(node.mask==='cpf')p=maskCPF(val);
   answers[node.id]=p;inp.value='';inp.placeholder='Digite sua resposta...';
+  // Atualiza lead com nome
+  if(node.id==='nome'){atualizarLead({nome:p});addBubble(p,'out').then(()=>{step++;renderStep(step);});return;}
+  // Atualiza lead com whatsapp
+  if(node.id==='whatsapp'){atualizarLead({whatsapp:p});addBubble(p,'out').then(()=>{step++;renderStep(step);});return;}
+  // Rota rápida finaliza
   if(node.id==='rota_whatsapp'){addBubble(p,'out').then(()=>rotaRapida());return;}
   addBubble(p,'out').then(()=>{step++;renderStep(step);});
 }
@@ -215,22 +252,32 @@ function buildMsgCompleto(l){
 
 async function salvarSupabase(l){
   try{
-    await fetch(`${SUPA_URL}/rest/v1/leads_govmg`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Prefer':'return=minimal'},
-      body:JSON.stringify({
-        nome:l.nome||null,cpf:l.cpf||null,whatsapp:l.whatsapp||null,
-        autarquia:l.autarquia||null,vinculo:l.vinculo||null,
-        tipo_cartao:l.tipo_cartao||null,banco:l.banco||null,
-        tem_fatura:l.tem_fatura||null,valor_fatura:l.valor_fatura||null,
-        contracheque_name:l.contracheque?.name||null,
-        contracheque_type:l.contracheque?.type||null,
-        contracheque_data:l.contracheque?.dataUrl||null,
-        extrato_name:l.extrato?.name||null,
-        extrato_type:l.extrato?.type||null,
-        extrato_data:l.extrato?.dataUrl||null
-      })
-    });
+    const body={
+      nome:l.nome||null,cpf:l.cpf||null,whatsapp:l.whatsapp||null,
+      autarquia:l.autarquia||null,vinculo:l.vinculo||null,
+      tipo_cartao:l.tipo_cartao||null,banco:l.banco||null,
+      tem_fatura:l.tem_fatura||null,valor_fatura:l.valor_fatura||null,
+      contracheque_name:l.contracheque?.name||null,
+      contracheque_type:l.contracheque?.type||null,
+      contracheque_data:l.contracheque?.dataUrl||null,
+      extrato_name:l.extrato?.name||null,
+      extrato_type:l.extrato?.type||null,
+      extrato_data:l.extrato?.dataUrl||null
+    };
+    // Se já existe lead inicial, faz UPDATE
+    if(answers._leadId){
+      await fetch(`${SUPA_URL}/rest/v1/leads_govmg?id=eq.${answers._leadId}`,{
+        method:'PATCH',
+        headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Prefer':'return=minimal'},
+        body:JSON.stringify(body)
+      });
+    } else {
+      await fetch(`${SUPA_URL}/rest/v1/leads_govmg`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Prefer':'return=minimal'},
+        body:JSON.stringify(body)
+      });
+    }
   }catch(e){console.error('Supabase erro:',e);}
 }
 
